@@ -56,6 +56,7 @@ pub struct Auction {
     pub end_time: i64,
     pub price: u64,
     pub closed: u32,
+    pub bidder_count: u32,
 }
 
 #[account]

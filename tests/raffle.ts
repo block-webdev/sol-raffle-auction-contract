@@ -20,8 +20,8 @@ const NATIVE_VAULT_SEED = "RA-NATIVE-VAULT-SEED";
 
 export const getNativeVaultKey = async (pid) => {
   const [poolKey] = await asyncGetPda(
-      [Buffer.from(NATIVE_VAULT_SEED)],
-      pid
+    [Buffer.from(NATIVE_VAULT_SEED)],
+    pid
   );
   return poolKey;
 };
@@ -190,9 +190,9 @@ describe("raffle", () => {
       admin: user.publicKey,
       globalState: globalState,
       raffle: raffleKey,
-      rewardMint : zzz_mint.publicKey,
-      rewardVault : await getRewardVaultKey(program.programId, zzz_mint.publicKey),
-      sourceAccount: pay_account,      
+      rewardMint: zzz_mint.publicKey,
+      rewardVault: await getRewardVaultKey(program.programId, zzz_mint.publicKey),
+      sourceAccount: pay_account,
     }).signers([user]).rpc();
 
     /// buy ticket
@@ -277,12 +277,25 @@ describe("raffle", () => {
     // }).signers([user]).rpc();
 
     await program.methods.finishAuction(auctionId).accounts({
-      user: user.publicKey,
+      admin: user.publicKey,
       globalState: globalState,
       auction: auctionKey,
       nftVault: await getNftVaultKey(program.programId, zzz_mint.publicKey),
       nftMint: zzz_mint.publicKey,
       nftReceiver: pay_account,
     }).signers([user]).rpc();
+
+
+    await program.methods.bidRefund(auctionId).accounts({
+      admin: user.publicKey,
+      globalState: globalState,
+      auction: auctionKey,
+      bidder: user.publicKey,
+      bidderState: await getBidderStateKey(program.programId, auctionId, user.publicKey),
+      zzzMint: zzz_mint.publicKey,
+      zzzVault: payVaultKey,
+      destAccount: pay_account,
+    }).signers([user]).rpc();
+
   });
 });

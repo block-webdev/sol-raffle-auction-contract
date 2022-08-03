@@ -12,16 +12,16 @@ address = "J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"
 
 
 [programs.localnet]
-raffle = "LrE6QxmkADt25V4H3ULGt8MZMNxTXYNs3fxQXQMgyX7"
+raffle = "3MUA6ysVh3RdBtRVU26ME2W5NfTW9PcxdnhWzAVHn91Z"
 
 [programs.devnet]
-raffle = "LrE6QxmkADt25V4H3ULGt8MZMNxTXYNs3fxQXQMgyX7"
+raffle = "3MUA6ysVh3RdBtRVU26ME2W5NfTW9PcxdnhWzAVHn91Z"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "/root/.config/solana/id.json"
 
 [scripts]

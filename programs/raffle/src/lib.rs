@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
-use chainlink_solana as chainlink;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Mint, Token, TokenAccount, Transfer},
 };
+use chainlink_solana as chainlink;
 use solana_program::{program::invoke, program::invoke_signed, system_instruction};
 use std::mem::size_of;
 
@@ -15,7 +15,7 @@ use account::*;
 use constants::*;
 use errors::*;
 
-declare_id!("LrE6QxmkADt25V4H3ULGt8MZMNxTXYNs3fxQXQMgyX7");
+declare_id!("3MUA6ysVh3RdBtRVU26ME2W5NfTW9PcxdnhWzAVHn91Z");
 
 #[program]
 pub mod raffle {
@@ -30,7 +30,20 @@ pub mod raffle {
     }
 
     #[access_control(is_admin(&ctx.accounts.global_state, &ctx.accounts.admin))]
-    pub fn create_raffle(ctx: Context<CreateRaffle>, raffle_id: u32, ticket_count: u32, ticket_price: u64, start_time: i64, end_time: i64, project_name: String, project_description: String, discord_link: String, twitter_link: String, wl_spot: u32, image: String) -> Result<()>  {
+    pub fn create_raffle(
+        ctx: Context<CreateRaffle>,
+        raffle_id: u32,
+        ticket_count: u32,
+        ticket_price: u64,
+        start_time: i64,
+        end_time: i64,
+        project_name: String,
+        project_description: String,
+        discord_link: String,
+        twitter_link: String,
+        wl_spot: u32,
+        image: String,
+    ) -> Result<()> {
         ctx.accounts.raffle.raffle_id = raffle_id;
         ctx.accounts.raffle.ticket_count = ticket_count;
         ctx.accounts.raffle.ticket_price = ticket_price;
@@ -63,8 +76,21 @@ pub mod raffle {
     }
 
     #[access_control(is_admin(&ctx.accounts.global_state, &ctx.accounts.admin))]
-    pub fn set_raffle(ctx: Context<SetRaffle>, _raffle_id: u32, ticket_count: u32, ticket_price: u64, start_time: i64, end_time: i64, reward_mint: Pubkey, project_name: String, project_description: String, discord_link: String, twitter_link: String, wl_spot: u32, image: String) -> Result<()>  {
-
+    pub fn set_raffle(
+        ctx: Context<SetRaffle>,
+        _raffle_id: u32,
+        ticket_count: u32,
+        ticket_price: u64,
+        start_time: i64,
+        end_time: i64,
+        reward_mint: Pubkey,
+        project_name: String,
+        project_description: String,
+        discord_link: String,
+        twitter_link: String,
+        wl_spot: u32,
+        image: String,
+    ) -> Result<()> {
         ctx.accounts.raffle.ticket_count = ticket_count;
         ctx.accounts.raffle.ticket_price = ticket_price;
         ctx.accounts.raffle.start_time = start_time;
@@ -82,14 +108,13 @@ pub mod raffle {
     }
 
     #[access_control(is_admin(&ctx.accounts.global_state, &ctx.accounts.admin))]
-    pub fn delete_raffle(ctx: Context<DeleteRaffle>) -> Result<()>  {
-
+    pub fn delete_raffle(ctx: Context<DeleteRaffle>) -> Result<()> {
         ctx.accounts.global_state.raffle_count -= 1;
 
         Ok(())
     }
 
-    pub fn buy_ticket(ctx: Context<BuyTicket>, raffle_id: u32, count: u32) -> Result<()>  {
+    pub fn buy_ticket(ctx: Context<BuyTicket>, raffle_id: u32, count: u32) -> Result<()> {
         require!(
             ctx.accounts.raffle.ticket_count >= ctx.accounts.raffle.sold_tickets + count,
             RaffleError::InsufficientTickets
@@ -122,7 +147,7 @@ pub mod raffle {
     }
 
     #[access_control(is_admin(&ctx.accounts.global_state, &ctx.accounts.admin))]
-    pub fn finish_raffle(ctx: Context<FinishRaffle>, _raffle_id : u32) -> Result<()>  {
+    pub fn finish_raffle(ctx: Context<FinishRaffle>, _raffle_id: u32) -> Result<()> {
         let pyth_price_info = &ctx.accounts.pyth_account;
         let pyth_price_data = &pyth_price_info.try_borrow_data()?;
         let pyth_price = pyth_client::cast::<pyth_client::Price>(pyth_price_data);
@@ -138,7 +163,7 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn gen_wl_winners(ctx: Context<GenWlWinners>, ticket_count: u32) -> Result<u32>  {
+    pub fn gen_wl_winners(ctx: Context<GenWlWinners>, ticket_count: u32) -> Result<u32> {
         let pyth_price_info = &ctx.accounts.pyth_account;
         let pyth_price_data = &pyth_price_info.try_borrow_data()?;
         let pyth_price = pyth_client::cast::<pyth_client::Price>(pyth_price_data);
@@ -151,8 +176,15 @@ pub mod raffle {
         Ok(r)
     }
 
-    pub fn create_auction(ctx: Context<CreateAuction>, auction_id: u32, seller: Pubkey, min_bid_amount: u32, start_time: i64, end_time: i64, start_price: u64) -> Result<()>  {
-
+    pub fn create_auction(
+        ctx: Context<CreateAuction>,
+        auction_id: u32,
+        seller: Pubkey,
+        min_bid_amount: u32,
+        start_time: i64,
+        end_time: i64,
+        start_price: u64,
+    ) -> Result<()> {
         ctx.accounts.auction.auction_id = auction_id;
         ctx.accounts.auction.seller = seller;
         ctx.accounts.auction.nft_mint = ctx.accounts.nft_mint.key();
@@ -178,14 +210,13 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn delete_auction(ctx: Context<DeleteAuction>) -> Result<()>  {
-
+    pub fn delete_auction(ctx: Context<DeleteAuction>) -> Result<()> {
         ctx.accounts.global_state.auction_count -= 1;
 
         Ok(())
     }
 
-    pub fn bid(ctx: Context<Bid>, auction_id: u32, price: u64) -> Result<()>  {
+    pub fn bid(ctx: Context<Bid>, auction_id: u32, price: u64) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
 
         // check bid price
@@ -211,20 +242,26 @@ pub mod raffle {
         ctx.accounts.bidder_state.prev_bidder = auction.bidder;
         ctx.accounts.bidder_state.price = price;
         ctx.accounts.bidder_state.prev_price = auction.price;
-        ctx.accounts.bidder_state.refund_receiver = *ctx.accounts.source_account.to_account_info().key;
+        ctx.accounts.bidder_state.refund_receiver =
+            *ctx.accounts.source_account.to_account_info().key;
 
         // update auction info
         auction.bidder = *ctx.accounts.user.key;
         auction.price = price;
+        auction.bidder_count += 1;
 
         Ok(())
     }
 
-    pub fn cancel_bid(ctx: Context<CancelBid>, auction_id : u32) -> Result<()> {
+    pub fn cancel_bid(ctx: Context<CancelBid>, auction_id: u32) -> Result<()> {
         let accts = ctx.accounts;
 
         invoke(
-            &system_instruction::transfer(&accts.user.key(), &accts.native_vault.key(), CANCEL_BID_PRICE),
+            &system_instruction::transfer(
+                &accts.user.key(),
+                &accts.native_vault.key(),
+                CANCEL_BID_PRICE,
+            ),
             &[
                 accts.user.to_account_info().clone(),
                 accts.native_vault.clone(),
@@ -233,7 +270,8 @@ pub mod raffle {
         )?;
 
         // refund
-        let (_pool_account_seed, _pool_account_bump) = Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
+        let (_pool_account_seed, _pool_account_bump) =
+            Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
         let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
         let signer = &[&seeds[..]];
 
@@ -246,39 +284,44 @@ pub mod raffle {
         let cpi_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
         token::transfer(cpi_ctx, accts.bidder_state.price)?;
 
-        // update auction refund info
+        // update auction info
         if accts.auction.bidder == accts.user.key() {
             accts.auction.bidder = accts.bidder_state.prev_bidder;
             accts.auction.price = accts.bidder_state.prev_price;
         }
+        accts.auction.bidder_count -= 1;
 
         Ok(())
     }
 
-    pub fn finish_auction(ctx: Context<FinishAuction>, _auction_id : u32) -> Result<()> {
+    pub fn finish_auction(ctx: Context<FinishAuction>, _auction_id: u32) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
 
-        let (_pool_account_seed, _pool_account_bump) = Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
-        let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
-        let signer = &[&seeds[..]];
+        if auction.bidder_count > 0 {
+            let (_pool_account_seed, _pool_account_bump) =
+                Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
+            let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
+            let signer = &[&seeds[..]];
 
-        // item ownership transfer
-        let cpi_accounts = Transfer {
-            from: ctx.accounts.nft_vault.to_account_info(),
-            to: ctx.accounts.nft_receiver.to_account_info(),
-            authority: ctx.accounts.global_state.to_account_info(),
-        };
-        let token_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
-        token::transfer(cpi_ctx, ctx.accounts.nft_vault.amount)?;
+            // item ownership transfer
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.nft_vault.to_account_info(),
+                to: ctx.accounts.nft_receiver.to_account_info(),
+                authority: ctx.accounts.global_state.to_account_info(),
+            };
+            let token_program = ctx.accounts.token_program.to_account_info();
+            let cpi_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
+            token::transfer(cpi_ctx, ctx.accounts.nft_vault.amount)?;
+        }
 
         auction.closed = 1;
 
         Ok(())
     }
 
-    pub fn bid_refund(ctx: Context<BidRefund>) -> Result<()> {
-        let (_pool_account_seed, _pool_account_bump) = Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
+    pub fn bid_refund(ctx: Context<BidRefund>, auction_id: u32) -> Result<()> {
+        let (_pool_account_seed, _pool_account_bump) =
+            Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
         let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
         let signer = &[&seeds[..]];
 
@@ -294,7 +337,7 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn claim_rewards(ctx: Context<ClaimRewards>, raffle_id : u32) -> Result<()> {
+    pub fn claim_rewards(ctx: Context<ClaimRewards>, raffle_id: u32) -> Result<()> {
         // Transfer rewards from the pool reward vaults to user reward vaults.
         let vault_amount = ctx.accounts.reward_vault.amount;
         if vault_amount > 0 {
@@ -324,7 +367,7 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn deposit_reward(ctx: Context<DepositReward>, amount: u64) -> Result<()>  {
+    pub fn deposit_reward(ctx: Context<DepositReward>, amount: u64) -> Result<()> {
         let cpi_ctx = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
             anchor_spl::token::Transfer {
@@ -338,7 +381,6 @@ pub mod raffle {
 
         Ok(())
     }
-
 }
 
 #[derive(Accounts)]
@@ -501,7 +543,6 @@ pub struct FinishRaffle<'info> {
     pub pyth_account: AccountInfo<'info>,
 }
 
-
 #[derive(Accounts)]
 pub struct GenWlWinners<'info> {
     /// CHECK: We're reading data from this chainlink feed account
@@ -558,7 +599,6 @@ pub struct BuyTicket<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-
 #[derive(Accounts)]
 #[instruction(raffle_id : u32)]
 pub struct ClaimRewards<'info> {
@@ -579,7 +619,7 @@ pub struct ClaimRewards<'info> {
     pub buyer_state: Account<'info, BuyerState>,
 
     #[account(mut)]
-    pub global_state : Account<'info, GlobalState>,
+    pub global_state: Account<'info, GlobalState>,
 
     // reward mint
     #[account(address = raffle.reward_mint)]
@@ -617,15 +657,14 @@ pub struct DepositReward<'info> {
 
     #[account(mut,owner=spl_token::id())]
     /// CHECK: unsafe
-    pub source_account : AccountInfo<'info>,
+    pub source_account: AccountInfo<'info>,
 
     #[account(mut,owner=spl_token::id())]
     /// CHECK: unsafe
-    pub dest_account : AccountInfo<'info>,
+    pub dest_account: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
 }
-
 
 #[derive(Accounts)]
 #[instruction(auction_id : u32)]
@@ -790,9 +829,12 @@ pub struct CancelBid<'info> {
 #[instruction(auction_id : u32)]
 pub struct FinishAuction<'info> {
     #[account(mut)]
-    pub user: Signer<'info>,
+    pub admin: Signer<'info>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = global_state.admin == admin.key(),
+    )]
     pub global_state: Account<'info, GlobalState>,
 
     #[account(
@@ -836,6 +878,14 @@ pub struct BidRefund<'info> {
     )]
     pub global_state: Account<'info, GlobalState>,
 
+    #[account(
+        mut,
+        seeds = [AUCTION_SEED.as_bytes(), &auction_id.to_le_bytes()],
+        bump,
+        constraint = auction.closed == 1,
+    )]
+    pub auction: Account<'info, Auction>,
+
     #[account(mut)]
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub bidder: AccountInfo<'info>,
@@ -863,7 +913,7 @@ pub struct BidRefund<'info> {
         mut,
         constraint = dest_account.owner == bidder.key()
     )]
-    dest_account: Account<'info, TokenAccount>,
+    pub dest_account: Account<'info, TokenAccount>,
 
     // token program
     /// CHECK: This is not dangerous because we don't read or write from this account
@@ -891,11 +941,14 @@ pub struct DeleteAuction<'info> {
     pub auction: Account<'info, Auction>,
 }
 
-fn is_admin<'info> (
+fn is_admin<'info>(
     global_state: &Account<'info, GlobalState>,
     signer: &Signer<'info>,
 ) -> Result<()> {
-    require!(global_state.admin.eq(&signer.key()), RaffleError::InvalidAdmin);
+    require!(
+        global_state.admin.eq(&signer.key()),
+        RaffleError::InvalidAdmin
+    );
 
     Ok(())
 }
