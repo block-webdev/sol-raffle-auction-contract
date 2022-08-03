@@ -4,6 +4,7 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Mint, Token, TokenAccount, Transfer},
 };
+use solana_program::{program::invoke, program::invoke_signed, system_instruction};
 use std::mem::size_of;
 
 pub mod account;
@@ -23,6 +24,7 @@ pub mod raffle {
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         ctx.accounts.global_state.admin = ctx.accounts.admin.key();
         ctx.accounts.global_state.zzz_mint = ctx.accounts.zzz_mint.key();
+        ctx.accounts.global_state.native_vault = ctx.accounts.native_vault.key();
 
         Ok(())
     }
@@ -149,18 +151,29 @@ pub mod raffle {
         Ok(r)
     }
 
-    pub fn create_auction(ctx: Context<CreateAuction>, auction_id: u32, seller: Pubkey, nft_mint: Pubkey, min_bid_amount: u32, start_time: i64, end_time: i64, start_price: u64) -> Result<()>  {
+    pub fn create_auction(ctx: Context<CreateAuction>, auction_id: u32, seller: Pubkey, min_bid_amount: u32, start_time: i64, end_time: i64, start_price: u64) -> Result<()>  {
 
         ctx.accounts.auction.auction_id = auction_id;
         ctx.accounts.auction.seller = seller;
-        ctx.accounts.auction.nft_mint = nft_mint;
+        ctx.accounts.auction.nft_mint = ctx.accounts.nft_mint.key();
         ctx.accounts.auction.min_bid_amount = min_bid_amount;
         ctx.accounts.auction.start_time = start_time;
         ctx.accounts.auction.end_time = end_time;
-        ctx.accounts.auction.bid_mint = ctx.accounts.global_state.zzz_mint;
         ctx.accounts.auction.price = start_price;
 
         ctx.accounts.global_state.auction_count += 1;
+
+        // Transfer reward tokens into the vault.
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            anchor_spl::token::Transfer {
+                from: ctx.accounts.source_account.to_account_info(),
+                to: ctx.accounts.nft_vault.to_account_info(),
+                authority: ctx.accounts.admin.to_account_info(),
+            },
+        );
+
+        anchor_spl::token::transfer(cpi_ctx, 1)?;
 
         Ok(())
     }
@@ -172,7 +185,7 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn bid(ctx: Context<Bid>, _auction_id: u32, price: u64) -> Result<()>  {
+    pub fn bid(ctx: Context<Bid>, auction_id: u32, price: u64) -> Result<()>  {
         let auction = &mut ctx.accounts.auction;
 
         // check bid price
@@ -180,26 +193,10 @@ pub mod raffle {
             return Err(AuctionError::BidPirceTooLow.into());
         }
 
-        // if refund_receiver exist, return money back to it
-        if auction.refund_receiver != Pubkey::default() {
-            let (_pool_account_seed, _pool_account_bump) = Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
-            let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
-            let signer = &[&seeds[..]];
-
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.vault.to_account_info(),
-                to: ctx.accounts.ori_refund_receiver.to_account_info(),
-                authority: ctx.accounts.global_state.to_account_info(),
-            };
-            let token_program = ctx.accounts.token_program.to_account_info();
-            let cpi_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
-            token::transfer(cpi_ctx, auction.price)?;
-        }
-
         // transfer bid pirce to custodial currency holder
         let cpi_accounts = Transfer {
-            from: ctx.accounts.from.to_account_info(),
-            to: ctx.accounts.vault.to_account_info(),
+            from: ctx.accounts.source_account.to_account_info(),
+            to: ctx.accounts.zzz_vault.to_account_info(),
             authority: ctx.accounts.user.to_account_info(),
         };
 
@@ -207,21 +204,58 @@ pub mod raffle {
         let cpi_ctx = CpiContext::new(token_program, cpi_accounts);
         token::transfer(cpi_ctx, price)?;
 
-        // update auction info
+        // bidder state
         let auction = &mut ctx.accounts.auction;
+        ctx.accounts.bidder_state.auction_id = auction_id;
+        ctx.accounts.bidder_state.bidder = ctx.accounts.user.key();
+        ctx.accounts.bidder_state.prev_bidder = auction.bidder;
+        ctx.accounts.bidder_state.price = price;
+        ctx.accounts.bidder_state.prev_price = auction.price;
+        ctx.accounts.bidder_state.refund_receiver = *ctx.accounts.source_account.to_account_info().key;
+
+        // update auction info
         auction.bidder = *ctx.accounts.user.key;
-        auction.refund_receiver = *ctx.accounts.from.to_account_info().key;
         auction.price = price;
 
         Ok(())
     }
 
-    // pub fn cancel_bid(ctx: Context<CancelBid>) -> Result<()> {
+    pub fn cancel_bid(ctx: Context<CancelBid>, auction_id : u32) -> Result<()> {
+        let accts = ctx.accounts;
 
-    //     Ok(())
-    // }
+        invoke(
+            &system_instruction::transfer(&accts.user.key(), &accts.native_vault.key(), CANCEL_BID_PRICE),
+            &[
+                accts.user.to_account_info().clone(),
+                accts.native_vault.clone(),
+                accts.system_program.to_account_info().clone(),
+            ],
+        )?;
 
-    pub fn finish_auction(ctx: Context<FinishAuction>) -> Result<()> {
+        // refund
+        let (_pool_account_seed, _pool_account_bump) = Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
+        let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
+        let signer = &[&seeds[..]];
+
+        let cpi_accounts = Transfer {
+            from: accts.zzz_vault.to_account_info(),
+            to: accts.refund_receiver.to_account_info(),
+            authority: accts.global_state.to_account_info(),
+        };
+        let token_program = accts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
+        token::transfer(cpi_ctx, accts.bidder_state.price)?;
+
+        // update auction refund info
+        if accts.auction.bidder == accts.user.key() {
+            accts.auction.bidder = accts.bidder_state.prev_bidder;
+            accts.auction.price = accts.bidder_state.prev_price;
+        }
+
+        Ok(())
+    }
+
+    pub fn finish_auction(ctx: Context<FinishAuction>, _auction_id : u32) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
 
         let (_pool_account_seed, _pool_account_bump) = Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
@@ -230,15 +264,32 @@ pub mod raffle {
 
         // item ownership transfer
         let cpi_accounts = Transfer {
-            from: ctx.accounts.nft_holder.to_account_info(),
+            from: ctx.accounts.nft_vault.to_account_info(),
             to: ctx.accounts.nft_receiver.to_account_info(),
             authority: ctx.accounts.global_state.to_account_info(),
         };
         let token_program = ctx.accounts.token_program.to_account_info();
         let cpi_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
-        token::transfer(cpi_ctx, ctx.accounts.nft_holder.amount)?;
+        token::transfer(cpi_ctx, ctx.accounts.nft_vault.amount)?;
 
         auction.closed = 1;
+
+        Ok(())
+    }
+
+    pub fn bid_refund(ctx: Context<BidRefund>) -> Result<()> {
+        let (_pool_account_seed, _pool_account_bump) = Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
+        let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
+        let signer = &[&seeds[..]];
+
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.zzz_vault.to_account_info(),
+            to: ctx.accounts.dest_account.to_account_info(),
+            authority: ctx.accounts.global_state.to_account_info(),
+        };
+        let token_program = ctx.accounts.token_program.to_account_info();
+        let cpi_ctx = CpiContext::new_with_signer(token_program, cpi_accounts, signer);
+        token::transfer(cpi_ctx, ctx.accounts.bidder_state.price)?;
 
         Ok(())
     }
@@ -304,6 +355,14 @@ pub struct Initialize<'info> {
     )]
     pub global_state: Account<'info, GlobalState>,
 
+    #[account(
+        mut,
+        seeds = [NATIVE_VAULT_SEED],
+        bump,
+    )]
+    /// CHECK: this should be checked with vault address
+    pub native_vault: AccountInfo<'info>,
+
     // mint
     pub zzz_mint: Account<'info, Mint>,
 
@@ -365,7 +424,7 @@ pub struct CreateRaffle<'info> {
 
     // source account
     #[account(mut)]
-    source_account: Account<'info, TokenAccount>,
+    pub source_account: Account<'info, TokenAccount>,
 
     // The rent sysvar
     pub rent: Sysvar<'info, Rent>,
@@ -466,6 +525,7 @@ pub struct BuyTicket<'info> {
         mut,
         seeds = [RAFFLE_SEED.as_bytes(), &raffle_id.to_le_bytes()],
         bump,
+        constraint = raffle.closed == 0
     )]
     pub raffle: Account<'info, Raffle>,
 
@@ -486,16 +546,16 @@ pub struct BuyTicket<'info> {
         token::mint = zzz_mint,
         token::authority = global_state,
     )]
-    zzz_vault: Box<Account<'info, TokenAccount>>,
+    pub zzz_vault: Box<Account<'info, TokenAccount>>,
 
     // funder account
     #[account(mut)]
-    source_account: Account<'info, TokenAccount>,
+    pub source_account: Account<'info, TokenAccount>,
 
     pub system_program: Program<'info, System>,
 
     // The Token Program
-    token_program: Program<'info, Token>,
+    pub token_program: Program<'info, Token>,
 }
 
 
@@ -588,14 +648,33 @@ pub struct CreateAuction<'info> {
     )]
     pub auction: Account<'info, Auction>,
 
+    // nft mint
+    pub nft_mint: Account<'info, Mint>,
+
+    // reward vault that holds the reward mint for distribution
+    #[account(
+        init_if_needed,
+        token::mint = nft_mint,
+        token::authority = global_state,
+        seeds = [ NFT_VAULT_SEED.as_bytes(), nft_mint.key().as_ref() ],
+        bump,
+        payer = admin,
+    )]
+    pub nft_vault: Box<Account<'info, TokenAccount>>,
+
+    // source account
+    #[account(mut)]
+    source_account: Account<'info, TokenAccount>,
+
+    // The rent sysvar
+    pub rent: Sysvar<'info, Rent>,
+    // system program
+    /// CHECK: This is not dangerous because we don't read or write from this account
     pub system_program: Program<'info, System>,
-    
+
     // token program
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub token_program: Program<'info, Token>,
-    
-    // The rent sysvar
-    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]
@@ -616,29 +695,95 @@ pub struct Bid<'info> {
     pub auction: Account<'info, Auction>,
 
     #[account(
+        init,
+        payer = user,
+        seeds = [BIDDER_STATE_SEED.as_bytes(), &auction_id.to_le_bytes(), user.key().as_ref()],
+        bump,
+        space = 8 + size_of::<BidderState>(),
+    )]
+    pub bidder_state: Account<'info, BidderState>,
+
+    #[account(address = global_state.zzz_mint)]
+    pub zzz_mint: Box<Account<'info, Mint>>,
+
+    #[account(
         mut,
-        token::mint = bid_mint,
+        token::mint = zzz_mint,
         token::authority = global_state,
     )]
-    vault: Box<Account<'info, TokenAccount>>,
-
-    #[account(address = auction.bid_mint)]
-    pub bid_mint: Box<Account<'info, Mint>>,
+    pub zzz_vault: Box<Account<'info, TokenAccount>>,
 
     // funder account
     #[account(mut)]
-    from: Account<'info, TokenAccount>,
-
-    // funder account
-    #[account(
-        mut,
-        constraint = ori_refund_receiver.key() == auction.refund_receiver
-    )]
-    ori_refund_receiver: Account<'info, TokenAccount>,
+    pub source_account: Account<'info, TokenAccount>,
 
     // token program
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub token_program: Program<'info, Token>,
+
+    // system program
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(auction_id : u32)]
+pub struct CancelBid<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(mut)]
+    pub global_state: Account<'info, GlobalState>,
+
+    #[account(
+        mut,
+        seeds = [AUCTION_SEED.as_bytes(), &auction_id.to_le_bytes()],
+        bump,
+        constraint = auction.closed == 0
+    )]
+    pub auction: Account<'info, Auction>,
+
+    #[account(
+        mut,
+        seeds = [BIDDER_STATE_SEED.as_bytes(), &auction_id.to_le_bytes(), user.key().as_ref()],
+        bump,
+        close = user,
+    )]
+    pub bidder_state: Account<'info, BidderState>,
+
+    #[account(address = global_state.zzz_mint)]
+    pub zzz_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        mut,
+        token::mint = zzz_mint,
+        token::authority = global_state,
+    )]
+    pub zzz_vault: Box<Account<'info, TokenAccount>>,
+
+    // funder account
+    #[account(
+        mut,
+        constraint = refund_receiver.key() == bidder_state.refund_receiver
+    )]
+    pub refund_receiver: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        seeds = [NATIVE_VAULT_SEED],
+        bump,
+        address = global_state.native_vault
+    )]
+    /// CHECK: this should be checked with vault address
+    pub native_vault: AccountInfo<'info>,
+
+    // token program
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub token_program: Program<'info, Token>,
+
+    // system program
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -662,9 +807,9 @@ pub struct FinishAuction<'info> {
         token::mint = nft_mint,
         token::authority = global_state,
     )]
-    nft_holder: Box<Account<'info, TokenAccount>>,
+    nft_vault: Box<Account<'info, TokenAccount>>,
 
-    #[account(address = auction.bid_mint)]
+    #[account(address = auction.nft_mint)]
     pub nft_mint: Box<Account<'info, Mint>>,
 
     // funder account
@@ -673,6 +818,52 @@ pub struct FinishAuction<'info> {
         constraint = nft_receiver.owner == auction.bidder
     )]
     nft_receiver: Account<'info, TokenAccount>,
+
+    // token program
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+#[instruction(auction_id : u32)]
+pub struct BidRefund<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = global_state.admin == admin.key(),
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    #[account(mut)]
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub bidder: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        seeds = [BIDDER_STATE_SEED.as_bytes(), &auction_id.to_le_bytes(), bidder.key().as_ref()],
+        bump,
+        close = bidder,
+    )]
+    pub bidder_state: Account<'info, BidderState>,
+
+    #[account(address = global_state.zzz_mint)]
+    pub zzz_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        mut,
+        token::mint = zzz_mint,
+        token::authority = global_state,
+    )]
+    pub zzz_vault: Box<Account<'info, TokenAccount>>,
+
+    // funder account
+    #[account(
+        mut,
+        constraint = dest_account.owner == bidder.key()
+    )]
+    dest_account: Account<'info, TokenAccount>,
 
     // token program
     /// CHECK: This is not dangerous because we don't read or write from this account

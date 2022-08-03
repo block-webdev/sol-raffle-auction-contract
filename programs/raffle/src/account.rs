@@ -6,6 +6,7 @@ use anchor_lang::prelude::*;
 #[derive(Default)]
 pub struct GlobalState {
     pub admin: Pubkey,
+    pub native_vault: Pubkey,
     pub zzz_mint: Pubkey,
     pub raffle_count: u32,
     pub auction_count: u32,
@@ -43,7 +44,6 @@ pub struct BuyerState {
     pub ticket_num_end: u32,
 }
 
-
 #[account]
 #[derive(Default)]
 pub struct Auction {
@@ -51,11 +51,20 @@ pub struct Auction {
     pub seller: Pubkey,
     pub nft_mint: Pubkey,
     pub bidder: Pubkey,
-    pub refund_receiver: Pubkey,
     pub min_bid_amount: u32,
     pub start_time: i64,
     pub end_time: i64,
-    pub bid_mint: Pubkey,
     pub price: u64,
     pub closed: u32,
+}
+
+#[account]
+#[derive(Default)]
+pub struct BidderState {
+    pub auction_id: u32,
+    pub bidder: Pubkey,
+    pub prev_bidder: Pubkey,
+    pub price: u64,
+    pub prev_price: u64,
+    pub refund_receiver: Pubkey,
 }

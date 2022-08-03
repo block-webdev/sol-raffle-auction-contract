@@ -13,6 +13,18 @@ const AUCTION_SEED = "ONE-AUCTION-SEED";
 const VAULT_SEED = "RA-VAULT-SEED";
 const ZZZ_VAULT_SEED = "RA-PAY-VAULT-SEED";
 const REWARD_VAULT_SEED = "RA-REWARD-VAULT-SEED";
+const NFT_VAULT_SEED = "RA-AUCTION-NFT-VAULT-SEED";
+const BIDDER_STATE_SEED = "RA-BIDDER-STATE-SEED";
+const NATIVE_VAULT_SEED = "RA-NATIVE-VAULT-SEED";
+
+
+export const getNativeVaultKey = async (pid) => {
+  const [poolKey] = await asyncGetPda(
+      [Buffer.from(NATIVE_VAULT_SEED)],
+      pid
+  );
+  return poolKey;
+};
 
 
 export const getGlobalState = async (pid) => {
@@ -28,6 +40,16 @@ export const getRaffleKey = async (pid, raffle_id) => {
 
   const [userStateKey] = await asyncGetPda(
     [Buffer.from(RAFFLE_SEED), id.toArrayLike(Buffer, "le", 4)],
+    pid
+  );
+  return userStateKey;
+};
+
+export const getAuctionKey = async (pid, auction_id) => {
+  let id = new anchor.BN(auction_id);
+
+  const [userStateKey] = await asyncGetPda(
+    [Buffer.from(AUCTION_SEED), id.toArrayLike(Buffer, "le", 4)],
     pid
   );
   return userStateKey;
@@ -56,6 +78,18 @@ export const getPayVaultKey = async (pid, zzzMint) => {
   return payVaultKey;
 };
 
+export const getNftVaultKey = async (pid, nftMint) => {
+  const [vaultKey] = await asyncGetPda(
+    [
+      Buffer.from(NFT_VAULT_SEED),
+      nftMint.toBuffer()
+    ],
+    pid
+  );
+  console.log('nft vault key : ', vaultKey.toBase58());
+  return vaultKey;
+};
+
 export const getRewardVaultKey = async (pid, rewardMint) => {
   const [rewardVaultKey] = await asyncGetPda(
     [
@@ -67,6 +101,18 @@ export const getRewardVaultKey = async (pid, rewardMint) => {
   console.log('reward vault key : ', rewardVaultKey.toBase58());
   return rewardVaultKey;
 };
+
+export const getBidderStateKey = async (pid, auctionId, bidderPk) => {
+  let id = new anchor.BN(auctionId);
+
+  const [pk] = await asyncGetPda(
+    [Buffer.from(BIDDER_STATE_SEED), id.toArrayLike(Buffer, "le", 4), bidderPk.toBuffer()],
+    pid
+  );
+
+  return pk;
+};
+
 
 const asyncGetPda = async (
   seeds,
@@ -120,10 +166,12 @@ describe("raffle", () => {
 
     let globalState = await getGlobalState(program.programId);
     let payVaultKey = await getPayVaultKey(program.programId, zzz_mint.publicKey);
+    let nativeVaultKey = await getNativeVaultKey(program.programId);
 
     const res = await program.methods.initialize().accounts({
       admin: user.publicKey,
       globalState: globalState,
+      nativeVault: nativeVaultKey,
       zzzMint: zzz_mint.publicKey,
       zzzVault: payVaultKey,
     }).signers([user])
@@ -171,18 +219,19 @@ describe("raffle", () => {
 
     let data1 = await program.account.raffle.fetch(raffleKey);
     let data2 = await program.account.buyerState.fetch(await getBuyerStateKey(program.programId, user.publicKey, raffleId, ticketStartNum));
-    console.log('11111111111', data1, data2);
+    // console.log('11111111111', data1, data2);
 
     // claim_rewards
-    await program.methods.claimRewards(raffleId).accounts({
-      user: user.publicKey,
-      raffle: raffleKey,
-      buyerState: await getBuyerStateKey(program.programId, user.publicKey, raffleId, ticketStartNum),
-      globalState: globalState,
-      rewardMint : zzz_mint.publicKey,
-      rewardVault : await getRewardVaultKey(program.programId, zzz_mint.publicKey),
-      rewardToAccount : pay_account,
-    }).signers([user]).rpc();
+    // run in case only winner
+    // await program.methods.claimRewards(raffleId).accounts({
+    //   user: user.publicKey,
+    //   raffle: raffleKey,
+    //   buyerState: await getBuyerStateKey(program.programId, user.publicKey, raffleId, ticketStartNum),
+    //   globalState: globalState,
+    //   rewardMint : zzz_mint.publicKey,
+    //   rewardVault : await getRewardVaultKey(program.programId, zzz_mint.publicKey),
+    //   rewardToAccount : pay_account,
+    // }).signers([user]).rpc();
 
     // genWlWinners
     // let res1 = await program.methods.genWlWinners(100).accounts({
@@ -191,5 +240,49 @@ describe("raffle", () => {
 
     // console.log('222222222', res1);
 
+    // auction
+    let auctionId = 1;
+    let auctionKey = await getAuctionKey(program.programId, auctionId);
+
+    await program.methods.createAuction(auctionId, superOwner.publicKey, 1, new anchor.BN(startTime), new anchor.BN(endTime), new anchor.BN(1_000_000)).accounts({
+      admin: user.publicKey,
+      globalState: globalState,
+      auction: auctionKey,
+      nftMint: zzz_mint.publicKey,
+      nftVault: await getNftVaultKey(program.programId, zzz_mint.publicKey),
+      sourceAccount: pay_account,
+    }).signers([user]).rpc();
+
+    data = await program.account.auction.fetch(auctionKey);
+
+    await program.methods.bid(auctionId, new anchor.BN(2_000_000)).accounts({
+      user: user.publicKey,
+      globalState: globalState,
+      auction: auctionKey,
+      bidderState: await getBidderStateKey(program.programId, auctionId, user.publicKey),
+      zzzMint: zzz_mint.publicKey,
+      zzzVault: payVaultKey,
+      sourceAccount: pay_account,
+    }).signers([user]).rpc();
+
+    // await program.methods.cancelBid(auctionId).accounts({
+    //   user: user.publicKey,
+    //   globalState: globalState,
+    //   auction: auctionKey,
+    //   bidderState: await getBidderStateKey(program.programId, auctionId, user.publicKey),
+    //   zzzMint: zzz_mint.publicKey,
+    //   zzzVault: payVaultKey,
+    //   refundReceiver: pay_account,
+    //   nativeVault: nativeVaultKey,
+    // }).signers([user]).rpc();
+
+    await program.methods.finishAuction(auctionId).accounts({
+      user: user.publicKey,
+      globalState: globalState,
+      auction: auctionKey,
+      nftVault: await getNftVaultKey(program.programId, zzz_mint.publicKey),
+      nftMint: zzz_mint.publicKey,
+      nftReceiver: pay_account,
+    }).signers([user]).rpc();
   });
 });
