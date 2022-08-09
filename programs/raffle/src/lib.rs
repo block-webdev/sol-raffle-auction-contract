@@ -15,7 +15,7 @@ use account::*;
 use constants::*;
 use errors::*;
 
-declare_id!("3MUA6ysVh3RdBtRVU26ME2W5NfTW9PcxdnhWzAVHn91Z");
+declare_id!("FjmjfiwM4Sfv17Ufy9xRFYcUTMdZ9itRaC2GswA1MMQC");
 
 #[program]
 pub mod raffle {
@@ -163,6 +163,13 @@ pub mod raffle {
         Ok(())
     }
 
+    #[access_control(is_admin(&ctx.accounts.global_state, &ctx.accounts.admin))]
+    pub fn set_raffle_winner(ctx: Context<SetRaffleWinner>, _raffle_id: u32) -> Result<()> {
+        ctx.accounts.raffle.winner = ctx.accounts.winner_state.key();
+
+        Ok(())
+    }
+
     pub fn gen_wl_winners(ctx: Context<GenWlWinners>, ticket_count: u32) -> Result<u32> {
         let pyth_price_info = &ctx.accounts.pyth_account;
         let pyth_price_data = &pyth_price_info.try_borrow_data()?;
@@ -184,6 +191,8 @@ pub mod raffle {
         start_time: i64,
         end_time: i64,
         start_price: u64,
+        project_name: String,
+        project_description: String,
     ) -> Result<()> {
         ctx.accounts.auction.auction_id = auction_id;
         ctx.accounts.auction.seller = seller;
@@ -192,6 +201,8 @@ pub mod raffle {
         ctx.accounts.auction.start_time = start_time;
         ctx.accounts.auction.end_time = end_time;
         ctx.accounts.auction.price = start_price;
+        ctx.accounts.auction.project_name = project_name;
+        ctx.accounts.auction.project_description = project_description;
 
         ctx.accounts.global_state.auction_count += 1;
 
@@ -253,7 +264,7 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn cancel_bid(ctx: Context<CancelBid>, auction_id: u32) -> Result<()> {
+    pub fn cancel_bid(ctx: Context<CancelBid>, _auction_id: u32) -> Result<()> {
         let accts = ctx.accounts;
 
         invoke(
@@ -319,7 +330,7 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn bid_refund(ctx: Context<BidRefund>, auction_id: u32) -> Result<()> {
+    pub fn bid_refund(ctx: Context<BidRefund>, _auction_id: u32) -> Result<()> {
         let (_pool_account_seed, _pool_account_bump) =
             Pubkey::find_program_address(&[&(GLOBAL_STATE_SEED.as_bytes())], ctx.program_id);
         let seeds = &[GLOBAL_STATE_SEED.as_bytes(), &[_pool_account_bump]];
@@ -337,7 +348,7 @@ pub mod raffle {
         Ok(())
     }
 
-    pub fn claim_rewards(ctx: Context<ClaimRewards>, raffle_id: u32) -> Result<()> {
+    pub fn claim_rewards(ctx: Context<ClaimRewards>, _raffle_id: u32) -> Result<()> {
         // Transfer rewards from the pool reward vaults to user reward vaults.
         let vault_amount = ctx.accounts.reward_vault.amount;
         if vault_amount > 0 {
@@ -541,6 +552,31 @@ pub struct FinishRaffle<'info> {
 
     /// CHECK: We're reading data from this chainlink feed account
     pub pyth_account: AccountInfo<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(raffle_id : u32)]
+pub struct SetRaffleWinner<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        constraint = global_state.admin == admin.key(),
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    #[account(
+        mut,
+        seeds = [RAFFLE_SEED.as_bytes(), &raffle_id.to_le_bytes()],
+        bump,
+        constraint = raffle.closed == 1,
+    )]
+    pub raffle: Account<'info, Raffle>,
+
+    #[account(mut,
+        constraint = winner_state.ticket_num_start <= raffle.win_ticket_num && raffle.win_ticket_num <= winner_state.ticket_num_end)]
+    pub winner_state: Account<'info, BuyerState>,
 }
 
 #[derive(Accounts)]

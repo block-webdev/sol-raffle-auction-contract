@@ -22,6 +22,7 @@ pub struct Raffle {
     pub start_time: i64,
     pub end_time: i64,
     pub win_ticket_num: u32,
+    pub winner: Pubkey,
     pub reward_mint: Pubkey,
     pub project_name: String,
     pub project_description: String,
@@ -57,6 +58,8 @@ pub struct Auction {
     pub price: u64,
     pub closed: u32,
     pub bidder_count: u32,
+    pub project_name: String,
+    pub project_description: String,
 }
 
 #[account]

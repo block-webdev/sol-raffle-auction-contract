@@ -12,10 +12,10 @@ address = "J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"
 
 
 [programs.localnet]
-raffle = "3MUA6ysVh3RdBtRVU26ME2W5NfTW9PcxdnhWzAVHn91Z"
+raffle = "FjmjfiwM4Sfv17Ufy9xRFYcUTMdZ9itRaC2GswA1MMQC"
 
 [programs.devnet]
-raffle = "3MUA6ysVh3RdBtRVU26ME2W5NfTW9PcxdnhWzAVHn91Z"
+raffle = "FjmjfiwM4Sfv17Ufy9xRFYcUTMdZ9itRaC2GswA1MMQC"
 
 [registry]
 url = "https://api.apr.dev"
